@@ -19,7 +19,7 @@ var (
 	// ClientKey Is the private key generated from Google Cloud Platform
 	// that cooresponds to the OAuthEmail.
 	ClientKey = os.Getenv("GOOGLE_CLIENT_KEY")
-	projectID = "curt-groups"
+	ProjectID = os.Getenv("PROJECT_ID")
 
 	pubsubScopes = []string{
 		ps.ScopeCloudPlatform,
@@ -45,7 +45,7 @@ func jwtContext(scopes []string) error {
 		TokenURL:   google.JWTTokenURL,
 	}
 
-	pubsubCtx = cloud.NewContext(projectID, conf.Client(oauth2.NoContext))
+	pubsubCtx = cloud.NewContext(ProjectID, conf.Client(oauth2.NoContext))
 
 	return pubsubCtx.Err()
 }
@@ -57,7 +57,7 @@ func backgrounContext(scopes []string) error {
 		return err
 	}
 
-	pubsubCtx = cloud.WithContext(ctx, projectID, c)
+	pubsubCtx = cloud.WithContext(ctx, ProjectID, c)
 
 	return pubsubCtx.Err()
 }
