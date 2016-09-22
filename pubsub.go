@@ -3,15 +3,17 @@ package pubsub
 import (
 	"os"
 
+	"google.golang.org/api/option"
+
+	ps "cloud.google.com/go/pubsub"
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"golang.org/x/oauth2/jwt"
-	"google.golang.org/cloud"
-	ps "google.golang.org/cloud/pubsub"
 )
 
 var (
+	client    *ps.Client
 	pubsubCtx context.Context
 	// OAuthEmail Is the e-mail address used to authenticating
 	// against Google Cloud Platform
@@ -27,9 +29,9 @@ var (
 	}
 )
 
-// NewContext Generates a context.Context that is authenticated against
+// NewClient Generates a http.Client that is authenticated against
 // Google Cloud Platform with the `scopes` provided.
-func NewContext(scopes []string) error {
+func NewClient(scopes []string) error {
 	if OAuthEmail == "" {
 		return backgrounContext(scopes)
 	}
@@ -45,9 +47,11 @@ func jwtContext(scopes []string) error {
 		TokenURL:   google.JWTTokenURL,
 	}
 
-	pubsubCtx = cloud.NewContext(ProjectID, conf.Client(oauth2.NoContext))
+	opt := option.WithHTTPClient(conf.Client(oauth2.NoContext))
+	var err error
+	client, err = ps.NewClient(context.Background(), ProjectID, opt)
 
-	return pubsubCtx.Err()
+	return err
 }
 
 func backgrounContext(scopes []string) error {
@@ -57,9 +61,9 @@ func backgrounContext(scopes []string) error {
 		return err
 	}
 
-	pubsubCtx = cloud.WithContext(ctx, ProjectID, c)
+	client, err = ps.NewClient(ctx, ProjectID, option.WithHTTPClient(c))
 
-	return pubsubCtx.Err()
+	return err
 }
 
 // PushMessage Will send the `msgs` to Google PubSub into the `topic` that
@@ -67,24 +71,25 @@ func backgrounContext(scopes []string) error {
 func PushMessage(topic string, msgs ...*ps.Message) error {
 	var err error
 	if pubsubCtx == nil {
-		NewContext(pubsubScopes)
+		NewClient(pubsubScopes)
 	}
 
-	err = createTopic(topic)
+	var t *ps.Topic
+	t, err = createTopic(topic)
 	if err != nil {
 		return err
 	}
 
-	_, err = ps.Publish(pubsubCtx, topic, msgs...)
+	_, err = t.Publish(pubsubCtx, msgs...)
 	return err
 
 }
 
-func createTopic(topic string) error {
-	exists, err := ps.TopicExists(pubsubCtx, topic)
-	if err != nil || exists {
-		return err
+func createTopic(topic string) (*ps.Topic, error) {
+	t := client.Topic(topic)
+	if t != nil {
+		return t, nil
 	}
 
-	return ps.CreateTopic(pubsubCtx, topic)
+	return client.CreateTopic(pubsubCtx, topic)
 }
