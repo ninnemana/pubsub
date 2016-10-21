@@ -71,7 +71,10 @@ func backgrounContext(scopes []string) error {
 func PushMessage(topic string, msgs ...*ps.Message) error {
 	var err error
 	if pubsubCtx == nil {
-		NewClient(pubsubScopes)
+		err = NewClient(pubsubScopes)
+		if err != nil {
+			return err
+		}
 	}
 
 	var t *ps.Topic
