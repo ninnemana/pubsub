@@ -1,8 +1,6 @@
 package pubsub
 
 import (
-	"os"
-
 	"google.golang.org/api/option"
 
 	ps "cloud.google.com/go/pubsub"
@@ -15,13 +13,6 @@ import (
 var (
 	client    *ps.Client
 	pubsubCtx context.Context
-	// OAuthEmail Is the e-mail address used to authenticating
-	// against Google Cloud Platform
-	OAuthEmail = os.Getenv("GOOGLE_OAUTH_EMAIL")
-	// ClientKey Is the private key generated from Google Cloud Platform
-	// that cooresponds to the OAuthEmail.
-	ClientKey = os.Getenv("GOOGLE_CLIENT_KEY")
-	ProjectID = os.Getenv("PROJECT_ID")
 
 	pubsubScopes = []string{
 		ps.ScopeCloudPlatform,
@@ -31,47 +22,47 @@ var (
 
 // NewClient Generates a http.Client that is authenticated against
 // Google Cloud Platform with the `scopes` provided.
-func NewClient(scopes []string) error {
-	if OAuthEmail == "" {
-		return backgrounContext(scopes)
+func NewClient(scopes []string, email string, key string, project string) error {
+	if email == "" {
+		return backgrounContext(scopes, project)
 	}
 
-	return jwtContext(scopes)
+	return jwtContext(scopes, email, key, project)
 }
 
-func jwtContext(scopes []string) error {
+func jwtContext(scopes []string, email string, key string, project string) error {
 	conf := &jwt.Config{
-		Email:      OAuthEmail,
-		PrivateKey: []byte(ClientKey),
+		Email:      email,
+		PrivateKey: []byte(key),
 		Scopes:     scopes,
 		TokenURL:   google.JWTTokenURL,
 	}
 
 	opt := option.WithHTTPClient(conf.Client(oauth2.NoContext))
 	var err error
-	client, err = ps.NewClient(context.Background(), ProjectID, opt)
+	client, err = ps.NewClient(context.Background(), project, opt)
 
 	return err
 }
 
-func backgrounContext(scopes []string) error {
+func backgrounContext(scopes []string, project string) error {
 	ctx := context.Background()
 	c, err := google.DefaultClient(ctx, scopes...)
 	if err != nil {
 		return err
 	}
 
-	client, err = ps.NewClient(ctx, ProjectID, option.WithHTTPClient(c))
+	client, err = ps.NewClient(ctx, project, option.WithHTTPClient(c))
 
 	return err
 }
 
 // PushMessage Will send the `msgs` to Google PubSub into the `topic` that
 // is provided. If the `topic` doesn't exist, it will be created.
-func PushMessage(topic string, msgs ...*ps.Message) error {
+func PushMessage(email, key, project, topic string, msgs ...*ps.Message) error {
 	var err error
 	if pubsubCtx == nil {
-		err = NewClient(pubsubScopes)
+		err = NewClient(pubsubScopes, email, key, project)
 		if err != nil {
 			return err
 		}
