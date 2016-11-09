@@ -1,32 +1,57 @@
-package pubsub
+package psmongo
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
-	. "github.com/smartystreets/goconvey/convey"
+	ctx "golang.org/x/net/context"
+
+	"cloud.google.com/go/pubsub"
+	"google.golang.org/api/option"
 )
 
-func TestNewContext(t *testing.T) {
-	Convey("Testing NewContext(scopes ...string)", t, func() {
-		Convey("should create context", func() {
-			NewContext([]string{})
-			So(pubsubCtx, ShouldNotBeNil)
-			So(pubsubCtx.Err(), ShouldBeNil)
-			_, ok := pubsubCtx.Deadline()
-			So(ok, ShouldBeFalse)
-		})
-	})
+type pubsubAdmin struct {
+	ctx     context.Context
+	project string
+	opt     option.ClientOption
 }
 
-func TestPushMessage(t *testing.T) {
-	Convey("Testing PushMessge(topic string, msgs ...*pubsub.Mesage)", t, func() {
-		Convey("should error with no scopes in context", func() {
-			tmpScopes := pubsubScopes
-			pubsubCtx = nil
-			err := PushMessage("test_topic", nil)
-			So(err, ShouldNotBeNil)
+// func NewClient(ctx context.Context, proj string, opt ...option.ClientOption) (*pubsub.Client, error) {
+// 	return nil, fmt.Errorf("not implemented")
+// }
 
-			pubsubScopes = tmpScopes
-		})
-	})
+func TestNewBackgroundClientNoProject(t *testing.T) {
+	oldPsClient := psClient
+	defer func() {
+		psClient = oldPsClient
+	}()
+	psClient = func(c ctx.Context, proj string, opt ...option.ClientOption) (*pubsub.Client, error) {
+		t.Log(c)
+		return nil, fmt.Errorf("not implemented")
+	}
+
+	_, err := NewBackgroundClient("")
+	if err == nil {
+		t.Fatalf("error should not be nil: %+v", err)
+	}
+}
+
+func TestNewBackgroundClient(t *testing.T) {
+	client, err := NewBackgroundClient("pusub-testing")
+	if err != nil {
+		t.Fatalf("failed to connect with real project")
+	}
+
+	_, err = client.ListTopics()
+	if err != nil {
+		t.Fatalf("client doesn't have a stable connection %+v", err)
+	}
+}
+
+func TestNewClient(t *testing.T) {
+	_, err := NewClient("", "", "", nil)
+	if err == nil {
+		t.Fatalf("error should not be nil: %+v", err)
+	}
 }

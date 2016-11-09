@@ -1,89 +1,156 @@
-package pubsub
+package psmongo
 
 import (
+	"fmt"
+
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
-	ps "cloud.google.com/go/pubsub"
+	"cloud.google.com/go/pubsub"
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 	"golang.org/x/oauth2/jwt"
 )
 
-var (
-	client    *ps.Client
-	pubsubCtx context.Context
+type ClientConfig struct {
+	Client    *pubsub.Client
+	Config    *jwt.Config
+	ProjectID string
+	Context   context.Context
+}
 
-	pubsubScopes = []string{
-		ps.ScopeCloudPlatform,
-		ps.ScopePubSub,
+var (
+	DefaultScopes = []string{
+		pubsub.ScopeCloudPlatform,
+		pubsub.ScopePubSub,
 	}
+
+	psClient = pubsub.NewClient
 )
+
+type Admin interface {
+	NewClient(email string, key string, project string, scopes []string) (*ClientConfig, error)
+}
+
+type Subscriber interface {
+	Admin
+	ListTopics() ([]pubsub.Topic, error)
+}
+
+type Publisher interface {
+	Admin
+	PushMessage(topic string, msgs ...*pubsub.Message) error
+	CreateTopic(topic string) (*pubsub.Topic, error)
+}
+
+func NewBackgroundClient(project string) (*ClientConfig, error) {
+	ctx := context.Background()
+	client, err := pubsub.NewClient(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+
+	config := &ClientConfig{
+		Client:    client,
+		ProjectID: project,
+		Context:   ctx,
+	}
+
+	return config, nil
+}
 
 // NewClient Generates a http.Client that is authenticated against
 // Google Cloud Platform with the `scopes` provided.
-func NewClient(scopes []string, email string, key string, project string) error {
-	if email == "" {
-		return backgrounContext(scopes, project)
+func NewClient(email string, key string, project string, scopes []string) (*ClientConfig, error) {
+	if len(scopes) == 0 {
+		scopes = DefaultScopes
 	}
-
-	return jwtContext(scopes, email, key, project)
-}
-
-func jwtContext(scopes []string, email string, key string, project string) error {
 	conf := &jwt.Config{
 		Email:      email,
 		PrivateKey: []byte(key),
 		Scopes:     scopes,
-		TokenURL:   google.JWTTokenURL,
 	}
+
+	ctx := context.Background()
 
 	opt := option.WithHTTPClient(conf.Client(oauth2.NoContext))
-	var err error
-	client, err = ps.NewClient(context.Background(), project, opt)
 
-	return err
-}
-
-func backgrounContext(scopes []string, project string) error {
-	ctx := context.Background()
-	c, err := google.DefaultClient(ctx, scopes...)
+	client, err := pubsub.NewClient(ctx, project, opt)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	client, err = ps.NewClient(ctx, project, option.WithHTTPClient(c))
+	config := &ClientConfig{
+		Client:    client,
+		Config:    conf,
+		ProjectID: project,
+		Context:   ctx,
+	}
 
-	return err
+	return config, nil
+}
+
+func (client ClientConfig) ListTopics() ([]*pubsub.Topic, error) {
+	topics := client.Client.Topics(client.Context)
+	if topics == nil {
+		return nil, nil
+	}
+
+	var tps []*pubsub.Topic
+	for {
+		var tp *pubsub.Topic
+		var err error
+		tp, err = topics.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		tps = append(tps, tp)
+	}
+
+	return tps, nil
 }
 
 // PushMessage Will send the `msgs` to Google PubSub into the `topic` that
 // is provided. If the `topic` doesn't exist, it will be created.
-func PushMessage(email, key, project, topic string, msgs ...*ps.Message) error {
-	var err error
-	if pubsubCtx == nil {
-		err = NewClient(pubsubScopes, email, key, project)
+func (client ClientConfig) PushMessage(topic string, msgs ...*pubsub.Message) error {
+
+	topics := client.Client.Topics(context.Background())
+	if topics == nil {
+		return fmt.Errorf("could not find topic %s", topic)
+	}
+
+	var t *pubsub.Topic
+	for {
+		var tpc *pubsub.Topic
+		var err error
+		tpc, err = topics.Next()
+		if err == iterator.Done {
+			break
+		}
 		if err != nil {
 			return err
 		}
+
+		if tpc.String() == topic {
+			t = tpc
+			break
+		}
 	}
 
-	var t *ps.Topic
-	t, err = createTopic(topic)
-	if err != nil {
-		return err
-	}
+	_, err := t.Publish(client.Context, msgs...)
 
-	_, err = t.Publish(pubsubCtx, msgs...)
 	return err
-
 }
 
-func createTopic(topic string) (*ps.Topic, error) {
-	t := client.Topic(topic)
+func (client ClientConfig) CreateTopic(topic string) (*pubsub.Topic, error) {
+	t := client.Client.Topic(topic)
 	if t != nil {
 		return t, nil
 	}
 
-	return client.CreateTopic(pubsubCtx, topic)
+	return client.Client.CreateTopic(client.Context, topic)
 }
